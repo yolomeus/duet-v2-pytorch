@@ -104,7 +104,7 @@ class DuetHhdf5Saver(Hdf5Saver):
         vocab_tokens = list(self.word_to_index.keys())
         self.idfs = compute_idfs(vocab_tokens, bow_docs)
         # map token ids to idfs
-        self.idfs = map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs)
+        self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
 
     def output_size(self, split):
         if split == 'train':
@@ -116,26 +116,30 @@ class DuetHhdf5Saver(Hdf5Saver):
 
     def _save_row(self, query, pos_doc, neg_docs, h5py_fp):
         q_tokens = self.tokenizer.tokenize(query)
-        q_tokens = self._words_to_index(q_tokens)
+        q_ids = self._words_to_index(q_tokens)[:self.max_query_len]
 
         pos_tokens = self.tokenizer.tokenize(pos_doc)
-        pos_tokens = self._words_to_index(pos_tokens)
+        pos_ids = self._words_to_index(pos_tokens)[:self.max_doc_len]
 
-        neg_docs_tokens = [self._words_to_index(self.tokenizer.tokenize(neg_doc)) for neg_doc in neg_docs]
+        neg_docs_ids = [self._words_to_index(self.tokenizer.tokenize(neg_doc)) for neg_doc in neg_docs]
 
-        # TODO compute and save weighted interaction matrix
-        for neg_tokens in neg_docs_tokens:
-            h5py_fp['queries'][self.idx] = q_tokens[:self.max_query_len]
-            h5py_fp['pos_docs'][self.idx] = pos_tokens[:self.max_doc_len]
-            h5py_fp['neg_docs'][self.idx] = neg_tokens[:self.max_doc_len]
+        q_idfs = list(map(lambda x: self.idfs[x], q_ids))[:self.max_query_len]
+
+        for neg_ids in neg_docs_ids:
+            h5py_fp['query_idfs'][self.idx] = q_idfs
+            h5py_fp['queries'][self.idx] = q_ids
+            h5py_fp['pos_docs'][self.idx] = pos_ids
+            h5py_fp['neg_docs'][self.idx] = neg_ids[:self.max_doc_len]
             self.idx += 1
 
     def _define_dataset(self, dataset_fp, n_out_examples):
-        # dataset_fp.create_dataset('interaction_matrices', shape=(n_out_examples,), dtype='uint32')
         vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
         dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_uint32)
         dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_uint32)
         dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_uint32)
+
+        vlen_float32 = h5py.special_dtype(vlen=np.dtype('float32'))
+        dataset_fp.create_dataset('query_idfs', shape=(n_out_examples,), dtype=vlen_float32)
 
     def _words_to_index(self, words):
         """Turns a list of words into integer indices using self.word_to_index.
