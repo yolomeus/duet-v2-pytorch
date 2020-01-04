@@ -76,16 +76,22 @@ class Hdf5Saver(ABC):
 
 class DuetHhdf5Saver(Hdf5Saver):
 
-    def __init__(self, dataset: Dataset, vocab_outfile, *args, max_vocab_size=None, **kwargs):
-        """Construct a
+    def __init__(self, dataset: Dataset, max_query_len, max_doc_len, vocab_outfile, *args, max_vocab_size=None,
+                 **kwargs):
+        """Construct a hdf5 saver for qa_util Datasets.
 
         Args:
             dataset: the dataset to save as hdf5.
+            max_query_len: truncate queries to this length in words.
+            max_doc_len: truncate documents to this length in words.
             vocab_outfile: a pickle file where a word to index dictionary will be exported to.
             max_vocab_size: the maximum number of words in the vocabulary, only keeping the most frequent ones. Uses all
             if None.
         """
         super().__init__(dataset, *args, **kwargs)
+        self.max_query_len = max_query_len
+        self.max_doc_len = max_doc_len
+
         self.tokenizer = tokenizers.DuetTokenizer()
 
         collection = list(dataset.queries.values()) + list(dataset.docs.values())
@@ -119,9 +125,9 @@ class DuetHhdf5Saver(Hdf5Saver):
 
         # TODO compute and save weighted interaction matrix
         for neg_tokens in neg_docs_tokens:
-            h5py_fp['queries'][self.idx] = q_tokens
-            h5py_fp['pos_docs'][self.idx] = pos_tokens
-            h5py_fp['neg_docs'][self.idx] = neg_tokens
+            h5py_fp['queries'][self.idx] = q_tokens[:self.max_query_len]
+            h5py_fp['pos_docs'][self.idx] = pos_tokens[:self.max_doc_len]
+            h5py_fp['neg_docs'][self.idx] = neg_tokens[:self.max_doc_len]
             self.idx += 1
 
     def _define_dataset(self, dataset_fp, n_out_examples):
@@ -147,6 +153,8 @@ if __name__ == '__main__':
     conf = FiQADatasetConfig()
     fiqa = FiQA(args=conf)
     saver = DuetHhdf5Saver(fiqa,
+                           20,
+                           200,
                            './data/fiqa/vocabulary.pkl',
                            './data/fiqa/train.hdf5',
                            './data/fiqa/dev.hdf5',
