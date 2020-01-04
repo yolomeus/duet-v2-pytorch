@@ -20,9 +20,10 @@ def build_vocab(collection, tokenizer, special_tokens=('<UNK>', '<PAD>', '<EOS>'
     Returns:
         dict: A mapping from each word in the vocabulary to its integer id.
     """
-    assert len(
-        special_tokens) <= max_vocab_size or max_vocab_size is None, ('the vocabulary needs to be large enough '
-                                                                      'to hold the special tokens.')
+    if max_vocab_size is not None:
+        assert len(
+            special_tokens) <= max_vocab_size, 'the vocabulary needs to be large enough to hold the special tokens.'
+
     freqs = Counter()
     print('building vocabulary...')
     for text in tqdm(collection):
@@ -68,3 +69,7 @@ def compute_idfs(vocab, documents):
     print('done')
 
     return idfs
+
+
+def indices_to_words(indices, index_to_word):
+    return list(map(lambda x: index_to_word[x], indices))
