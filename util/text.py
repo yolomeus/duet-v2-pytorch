@@ -51,7 +51,7 @@ def compute_idfs(vocab, documents):
 
     """
 
-    dfs = defaultdict(int)
+    dfs = {word: 0 for word in vocab}
     print('computing dfs...')
 
     for doc in tqdm(documents):
@@ -62,7 +62,7 @@ def compute_idfs(vocab, documents):
     n_docs = len(documents)
 
     def _idf(term_freq):
-        return np.log(n_docs / term_freq) / np.log(n_docs)
+        return np.log(n_docs / (term_freq + 1)) / np.log(n_docs)
 
     print('computing idfs...')
     idfs = dict(map(lambda x: (x[0], _idf(x[1])), dfs.items()))
