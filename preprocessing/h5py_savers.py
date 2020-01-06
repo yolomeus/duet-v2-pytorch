@@ -28,6 +28,11 @@ class Hdf5Saver(ABC):
             test_outfile: path to the hdf5 output file for the test set.
         """
         self.dataset = dataset
+
+        self.train_outfile = train_outfile
+        self.dev_outfile = dev_outfile
+        self.test_outfile = test_outfile
+
         out_paths = [train_outfile, dev_outfile, test_outfile]
         assert any(out_paths), 'you need to specify at least one output filepath.'
         self.train_out, self.dev_out, self.test_out = (h5py.File(fpath, 'w') if fpath else None for fpath in
@@ -68,6 +73,7 @@ class Hdf5Saver(ABC):
         assert split in ['train', 'test'], 'can only compute output_size for either "train" or "test".'
 
     def _save_trainset(self):
+        print("saving", self.train_outfile, "...")
         self._define_dataset(self.train_out, self.output_size('train'))
         self.idx = 0
         for query, pos_doc, neg_docs in tqdm(self.dataset.trainset):
@@ -100,9 +106,8 @@ class DuetHhdf5Saver(Hdf5Saver):
         dump_pkl_file(self.index_to_word, vocab_outfile)
 
         # compute idfs for weighting of the interaction matrix
-        bow_docs = [set(self.tokenizer.tokenize(doc)) for doc in dataset.docs.values()]
-        vocab_tokens = list(self.word_to_index.keys())
-        self.idfs = compute_idfs(vocab_tokens, bow_docs)
+        vocab_tokens = set(self.word_to_index.keys())
+        self.idfs = compute_idfs(vocab_tokens, dataset.docs.values(), self.tokenizer)
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
 

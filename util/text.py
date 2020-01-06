@@ -1,5 +1,7 @@
 import math
-from collections import Counter, defaultdict
+from collections import Counter
+from functools import partial
+from multiprocessing.pool import Pool
 
 import numpy as np
 from tqdm import tqdm
@@ -38,33 +40,47 @@ def build_vocab(collection, tokenizer, special_tokens=('<UNK>', '<PAD>', '<EOS>'
     return vocab
 
 
-def compute_idfs(vocab, documents):
+def doc_to_bow(document, tokenizer):
+    """Tokenize a document using tokenizer and return it as set.
+
+    Args:
+        document: the document to turn into a BOW.
+        tokenizer: tokenizes the document.
+
+    Returns:
+        set: a set of words from the vocabulary that occur in the document.
+
+    """
+    return set(tokenizer.tokenize(document))
+
+
+def compute_idfs(vocab, documents, tokenizer):
     """Compute the IDF (Robertson-Walker definition) for each term in a vocab given a corpus of tokenized bag of words
     documents.
 
     Args:
-        vocab (set(str)): a set of words/tokens of a vocabulary.
-        documents (list(set(str))): a list of tokenized documents.
+        vocab (Iterable): a set of words/tokens of a vocabulary.
+        documents (Iterable): a list of tokenized documents.
 
     Returns:
         dict(str, float): a mapping from each word in the vocabulary to its idf.
 
     """
-
     dfs = {word: 0 for word in vocab}
     print('computing dfs...')
 
-    for doc in tqdm(documents):
-        for word in vocab:
-            if word in doc:
-                dfs[word] += 1
-
+    func = partial(doc_to_bow, tokenizer=tokenizer)
+    # default to cpu count
     n_docs = len(documents)
+    with Pool(processes=None) as p:
+        for bow_doc in tqdm(p.imap(func, documents, chunksize=1024), total=n_docs):
+            for word in bow_doc:
+                dfs[word] += 1
 
     def _idf(term_freq):
         return np.log(n_docs / (term_freq + 1)) / np.log(n_docs)
 
-    print('computing idfs...')
+    print('computing idfs from dfs...')
     idfs = dict(map(lambda x: (x[0], _idf(x[1])), dfs.items()))
     print('done')
 
