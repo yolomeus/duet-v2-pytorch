@@ -29,26 +29,14 @@ class Hdf5Saver(ABC):
         """
         self.dataset = dataset
 
-        self.train_outfile = train_outfile
-        self.dev_outfile = dev_outfile
-        self.test_outfile = test_outfile
+        self.train_outpath = train_outfile
+        self.dev_outpath = dev_outfile
+        self.test_outpath = test_outfile
 
         out_paths = [train_outfile, dev_outfile, test_outfile]
         assert any(out_paths), 'you need to specify at least one output filepath.'
         self.train_out, self.dev_out, self.test_out = (h5py.File(fpath, 'w') if fpath else None for fpath in
                                                        out_paths)
-
-    @abstractmethod
-    def _save_row(self, query, pos_doc, neg_docs, h5py_fp):
-        """Apply any necessary transformation to the input data and save it to the h5py file.
-
-        Args:
-            query: a raw text query to be saved.
-            pos_doc: a raw text document relevant to the query.
-            neg_docs: One or more documents that are not relevant to the query.
-            h5py_fp: file pointer to the hdf5 output file
-
-        """
 
     @abstractmethod
     def _define_dataset(self, dataset_fp, n_out_examples):
@@ -72,12 +60,33 @@ class Hdf5Saver(ABC):
         """
         assert split in ['train', 'test'], 'can only compute output_size for either "train" or "test".'
 
-    def _save_trainset(self):
-        print("saving", self.train_outfile, "...")
+    @abstractmethod
+    def _transform_train_row(self, *args):
+        pass
+
+    @abstractmethod
+    def _transform_test_row(self):
+        pass
+
+    @abstractmethod
+    def _save_train_row(self, *args):
+        pass
+
+    @abstractmethod
+    def _save_test_row(self):
+        pass
+
+    def _save_test_set(self):
+        pass
+
+    def _save_train_set(self):
+        print("saving", self.train_outpath, "...")
         self._define_dataset(self.train_out, self.output_size('train'))
         self.idx = 0
+
         for query, pos_doc, neg_docs in tqdm(self.dataset.trainset):
-            self._save_row(query, pos_doc, neg_docs, self.train_out)
+            processed_row = self._transform_train_row(query, pos_doc, neg_docs)
+            self._save_train_row(*processed_row)
 
 
 class DuetHhdf5Saver(Hdf5Saver):
@@ -111,6 +120,16 @@ class DuetHhdf5Saver(Hdf5Saver):
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
 
+    def _define_dataset(self, dataset_fp, n_out_examples):
+        vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
+        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_uint32)
+        dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_uint32)
+        dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_uint32)
+
+        imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
+        dataset_fp.create_dataset('pos_imats', shape=imat_shape, dtype=np.dtype('float32'))
+        dataset_fp.create_dataset('neg_imats', shape=imat_shape, dtype=np.dtype('float32'))
+
     def output_size(self, split):
         if split == 'train':
             trainset = self.dataset.trainset
@@ -119,29 +138,41 @@ class DuetHhdf5Saver(Hdf5Saver):
         elif split == 'test':
             pass
 
-    def _save_row(self, query, pos_doc, neg_docs, h5py_fp):
+    def _transform_train_row(self, query, pos_doc, neg_docs):
         q_tokens = self.tokenizer.tokenize(query)
         q_ids = self._words_to_index(q_tokens)[:self.max_query_len]
 
         pos_tokens = self.tokenizer.tokenize(pos_doc)
         pos_ids = self._words_to_index(pos_tokens)[:self.max_doc_len]
 
-        neg_docs_ids = [self._words_to_index(self.tokenizer.tokenize(neg_doc)) for neg_doc in neg_docs]
+        neg_docs_ids = [self._words_to_index(self.tokenizer.tokenize(neg_doc))[:self.max_doc_len] for neg_doc in
+                        neg_docs]
 
         pos_imat = self._build_interaction_matrix(q_ids, pos_ids, self.idfs)
+        neg_imats = []
 
         for neg_ids in neg_docs_ids:
-            neg_ids = neg_ids[:self.max_doc_len]
-
-            h5py_fp['queries'][self.idx] = q_ids
-            h5py_fp['pos_docs'][self.idx] = pos_ids
-            h5py_fp['neg_docs'][self.idx] = neg_ids
-
             neg_imat = self._build_interaction_matrix(q_ids, neg_ids, self.idfs)
+            neg_imats.append(neg_imat)
 
-            h5py_fp['pos_imats'][self.idx] = pos_imat
-            h5py_fp['neg_imats'][self.idx] = neg_imat
+        return q_ids, pos_ids, neg_docs_ids, pos_imat, neg_imats
+
+    def _save_train_row(self, q_ids, pos_ids, neg_docs_ids, pos_imat, neg_imats):
+        fp = self.train_out
+        for neg_ids, neg_imat in zip(neg_docs_ids, neg_imats):
+            fp['queries'][self.idx] = q_ids
+            fp['pos_docs'][self.idx] = pos_ids
+            fp['neg_docs'][self.idx] = neg_ids
+
+            fp['pos_imats'][self.idx] = pos_imat
+            fp['neg_imats'][self.idx] = neg_imat
             self.idx += 1
+
+    def _transform_test_row(self):
+        pass
+
+    def _save_test_row(self):
+        pass
 
     def _build_interaction_matrix(self, q_ids, doc_ids, idfs):
         """Helper method for building a IDF-weighted interaction matrix between a query and document. An entry at (i, j)
@@ -162,16 +193,6 @@ class DuetHhdf5Saver(Hdf5Saver):
                     m[i, j] = idfs[cur_qid]
 
         return m
-
-    def _define_dataset(self, dataset_fp, n_out_examples):
-        vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
-        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_uint32)
-        dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_uint32)
-        dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_uint32)
-
-        imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
-        dataset_fp.create_dataset('pos_imats', shape=imat_shape, dtype=np.dtype('float32'))
-        dataset_fp.create_dataset('neg_imats', shape=imat_shape, dtype=np.dtype('float32'))
 
     def _words_to_index(self, words):
         """Turns a list of words into integer indices using self.word_to_index.
@@ -195,4 +216,4 @@ if __name__ == '__main__':
                            './data/fiqa/train.hdf5',
                            './data/fiqa/dev.hdf5',
                            './data/fiqa/test.hdf5')
-    saver._save_trainset()
+    saver._save_train_set()
