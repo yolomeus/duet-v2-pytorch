@@ -28,9 +28,9 @@ def build_vocab(collection, tokenizer, special_tokens=('<UNK>', '<PAD>', '<EOS>'
 
     freqs = Counter()
     print('building vocabulary...')
-    for text in tqdm(collection):
-        tokens = tokenizer.tokenize(text)
-        freqs.update(tokens)
+    with Pool(processes=None) as p:
+        for tokens in tqdm(p.imap(tokenizer.tokenize, collection, chunksize=1024), total=len(collection)):
+            freqs.update(tokens)
 
     for token in special_tokens:
         freqs[token] = math.inf  # guarantees specials tokens to be included
