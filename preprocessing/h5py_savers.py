@@ -123,14 +123,40 @@ class DuetHhdf5Saver(Hdf5Saver):
 
         neg_docs_ids = [self._words_to_index(self.tokenizer.tokenize(neg_doc)) for neg_doc in neg_docs]
 
-        q_idfs = list(map(lambda x: self.idfs[x], q_ids))[:self.max_query_len]
+        pos_imat = self._build_interaction_matrix(q_ids, pos_ids, self.idfs)
 
         for neg_ids in neg_docs_ids:
-            h5py_fp['query_idfs'][self.idx] = q_idfs
+            neg_ids = neg_ids[:self.max_doc_len]
+
             h5py_fp['queries'][self.idx] = q_ids
             h5py_fp['pos_docs'][self.idx] = pos_ids
-            h5py_fp['neg_docs'][self.idx] = neg_ids[:self.max_doc_len]
+            h5py_fp['neg_docs'][self.idx] = neg_ids
+
+            neg_imat = self._build_interaction_matrix(q_ids, neg_ids, self.idfs)
+
+            h5py_fp['pos_imats'][self.idx] = pos_imat
+            h5py_fp['neg_imats'][self.idx] = neg_imat
             self.idx += 1
+
+    def _build_interaction_matrix(self, q_ids, doc_ids, idfs):
+        """Helper method for building a IDF-weighted interaction matrix between a query and document. An entry at (i, j)
+        is the IDF of the i-th word in the query if it matches the j-th word in the document or 0 else.
+
+        Args:
+            q_ids (Iterable): integer ids representing the words in the query.
+            doc_ids (Iterable): integer ids representing the words in the document.
+            idfs (dict): mapping from each id in the vocabulary of query and document to an IDF value.
+        Returns:
+            numpy.ndarray: A 2-D interaction matrix.
+        """
+        m = np.zeros(shape=(self.max_query_len, self.max_doc_len))
+        for i in range(len(q_ids)):
+            for j in range(len(doc_ids)):
+                cur_qid = q_ids[i]
+                if cur_qid == doc_ids[j]:
+                    m[i, j] = idfs[cur_qid]
+
+        return m
 
     def _define_dataset(self, dataset_fp, n_out_examples):
         vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
@@ -138,8 +164,9 @@ class DuetHhdf5Saver(Hdf5Saver):
         dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_uint32)
         dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_uint32)
 
-        vlen_float32 = h5py.special_dtype(vlen=np.dtype('float32'))
-        dataset_fp.create_dataset('query_idfs', shape=(n_out_examples,), dtype=vlen_float32)
+        imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
+        dataset_fp.create_dataset('pos_imats', shape=imat_shape, dtype=np.dtype('float32'))
+        dataset_fp.create_dataset('neg_imats', shape=imat_shape, dtype=np.dtype('float32'))
 
     def _words_to_index(self, words):
         """Turns a list of words into integer indices using self.word_to_index.
