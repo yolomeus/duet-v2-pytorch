@@ -61,6 +61,7 @@ def compute_idfs(vocab, documents, tokenizer):
     Args:
         vocab (Iterable): a set of words/tokens of a vocabulary.
         documents (Iterable): a list of tokenized documents.
+        tokenizer (tokenizers.Tokenizer): tokenizer used on documents.
 
     Returns:
         dict(str, float): a mapping from each word in the vocabulary to its idf.

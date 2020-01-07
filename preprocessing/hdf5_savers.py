@@ -1,4 +1,3 @@
-import pickle
 from abc import ABC, abstractmethod
 
 import h5py
@@ -39,7 +38,7 @@ class Hdf5Saver(ABC):
                                                        out_paths)
 
     def build_all(self):
-        """Exports each split in dataset to hdf5 if an output file was specified for it.
+        """Exports each split of dataset to hdf5 if an output file was specified for it.
         """
         if self.train_out:
             self._save_train_set()
@@ -49,6 +48,12 @@ class Hdf5Saver(ABC):
             self._save_candidate_set('dev')
 
     def _save_candidate_set(self, split):
+        """Saves a candidate type set i.e. Dataset.testset or Dataset.devset to hdf5.
+
+        Args:
+            split (str): either 'dev' or 'test'.
+
+        """
         fp, dataset = (self.dev_out, self.dataset.devset) if split == 'dev' else (self.test_out, self.dataset.testset)
 
         print('saving to', fp.filename, '...')
@@ -60,6 +65,8 @@ class Hdf5Saver(ABC):
             self._save_candidate_row(fp, *processed_row)
 
     def _save_train_set(self):
+        """Saves the trainset to hdf5.
+        """
         print("saving", self.train_outpath, "...")
         self._define_trainset(self.train_out, self._n_out_samples(self.dataset.trainset))
         self.idx = 0
@@ -123,14 +130,27 @@ class Hdf5Saver(ABC):
 
     @abstractmethod
     def _save_train_row(self, *args):
-        pass
+        """The function that saves an item from the Dataset.trainset after applying _transform_train_row. It's saved to
+        a hdf5 file as defined in _define_trainset().
+
+        Args:
+            *args: the transformed row returned by _transform_train_row.
+        """
 
     @abstractmethod
     def _save_candidate_row(self, *args):
-        pass
+        """The function that saves an item from the Dataset.devset or Dataset.trainset after applying
+        _transform_candidate_row. It's saved a hdf5 file as defined in _define_candidate_set().
+
+        Args:
+            *args: he transformed row returned by _transform_candidate_row.
+        """
 
 
 class DuetHhdf5Saver(Hdf5Saver):
+    """Class for transforming and saving a qa_utils dataset into an hdf5 file that matches the input specification of
+    DUET V2.
+    """
 
     def __init__(self, dataset: Dataset, max_query_len, max_doc_len, vocab_outfile, *args, max_vocab_size=None,
                  **kwargs):
@@ -250,7 +270,6 @@ class DuetHhdf5Saver(Hdf5Saver):
         Args:
             q_ids (Iterable): integer ids representing the words in the query.
             doc_ids (Iterable): integer ids representing the words in the document.
-            idfs (dict): mapping from each id in the vocabulary of query and document to an IDF value.
         Returns:
             numpy.ndarray: A 2-D interaction matrix.
         """
