@@ -5,13 +5,13 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 
 from data_source import DuetHdf5Trainset
-from duet_utils.training import train_model_pairwise
+from duet_utils.training import train_model_pairwise, get_available_cuda
 from duetv2_model import DuetV2
 
 if __name__ == '__main__':
     ap = ArgumentParser(description='Train the DUET model.')
-    ap.add_argument('-TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
-    ap.add_argument('-VOCAB_SIZE', type=int, help='Size of the vocabulary in the training file.')
+    ap.add_argument('TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
+    ap.add_argument('VOCAB_SIZE', type=int, help='Size of the vocabulary in the training file.')
 
     ap.add_argument('--max_q_len', type=int, default=20, help='Maximum query length.')
     ap.add_argument('--max_d_len', type=int, default=200, help='Maximum document legth.')
@@ -32,13 +32,7 @@ if __name__ == '__main__':
     trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len)
     train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
-    if torch.cuda.is_available():
-        # cuda:0 will still use all GPUs
-        device = torch.device('cuda:0')
-        dev_name = torch.cuda.get_device_name(torch.cuda.current_device())
-        print('using {} device(s): "{}"'.format(torch.cuda.device_count(), dev_name))
-    else:
-        device = torch.device('cpu')
+    device = get_available_cuda()
 
     model = DuetV2(num_embeddings=args.VOCAB_SIZE,
                    h_dim=args.hidden_dim,
@@ -47,5 +41,7 @@ if __name__ == '__main__':
                    dropout_rate=args.dropout,
                    out_features=1)
     model = model.to(device)
+    model = torch.nn.DataParallel(model)
+
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     train_model_pairwise(model, train_dataloader, optimizer, nn.CrossEntropyLoss(), device, args)
