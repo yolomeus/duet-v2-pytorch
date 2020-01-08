@@ -1,20 +1,6 @@
 import re
-from abc import ABC, abstractmethod
 
-
-class Tokenizer(ABC):
-    """Abstract base class for tokenizers."""
-
-    @abstractmethod
-    def tokenize(self, text):
-        """Turns a string into a list of tokens.
-
-        Args:
-            text (str): a string to be tokenized
-
-        Returns:
-            list: list of tokens
-        """
+from qa_utils.text import Tokenizer
 
 
 class DuetTokenizer(Tokenizer):

@@ -5,11 +5,12 @@ import numpy as np
 from tqdm import tqdm
 
 from config import FiQAConfig
-from preprocessing import tokenizers
+from preprocessing.tokenizer import DuetTokenizer
+
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
 from qa_utils.preprocessing.fiqa import FiQA
 from qa_utils.io import dump_pkl_file
-from duet_utils.text import build_vocab, compute_idfs
+from qa_utils.text import build_vocab, compute_idfs
 
 
 class Hdf5Saver(ABC):
@@ -168,7 +169,7 @@ class DuetHhdf5Saver(Hdf5Saver):
         self.max_query_len = max_query_len
         self.max_doc_len = max_doc_len
 
-        self.tokenizer = tokenizers.DuetTokenizer()
+        self.tokenizer = DuetTokenizer()
 
         collection = list(dataset.queries.values()) + list(dataset.docs.values())
         self.word_to_index = build_vocab(collection, self.tokenizer, max_vocab_size=max_vocab_size)
