@@ -3,11 +3,10 @@ from torch import nn
 
 
 class DuetV2(torch.nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, out_features):
+    def __init__(self, num_embeddings, h_dim, out_features):
         super().__init__()
-        h_dim = 500
-        self.embedding = nn.Embedding(num_embeddings, embedding_dim)
-        self.linear = nn.Linear(32160, h_dim)
+        self.embedding = nn.Embedding(num_embeddings, h_dim)
+        self.linear = nn.Linear(70000, h_dim)
         self.linear2 = nn.Linear(h_dim, h_dim)
         self.linear3 = nn.Linear(h_dim, h_dim)
         self.linear4 = nn.Linear(h_dim, h_dim)

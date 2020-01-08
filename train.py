@@ -1,31 +1,36 @@
-import os
 from argparse import ArgumentParser
 
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from data_source import DuetHdf5Trainset
-from duet_utils.io import load_config, DatasetConfigLoader
+from duet_utils.training import train_model_pairwise
 from duetv2_model import DuetV2
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Train the DUET model.')
-    parser.add_argument('-c', default='config', type=str, help='Path to the python config module (without .py)')
-    parser.add_argument('-d',
-                        default='FiQA',
-                        choices=['FiQA', 'MSmarco', 'WikipassageQA', 'InsuranceQA'],
-                        type=str,
-                        help='Dataset to train on.')
+    ap = ArgumentParser(description='Train the DUET model.')
+    ap.add_argument('-TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
+    ap.add_argument('-VOCAB_SIZE', type=int, help='Size of the vocabulary in the training file.')
 
-    args = parser.parse_args()
+    ap.add_argument('--max_q_len', type=int, default=20, help='Maximum query length.')
+    ap.add_argument('--max_d_len', type=int, default=200, help='Maximum document legth.')
 
-    dataset_config = DatasetConfigLoader().get_dataset_config(args.c, args.d)
-    train_config = load_config(args.c, 'TrainConfig')
+    ap.add_argument('--hidden_dim', type=int, default=300,
+                    help='The hidden dimension used throughout the whole network.')
+    ap.add_argument('--dropout', type=float, default=0.5, help='Dropout value')
+    ap.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
 
-    trainset = DuetHdf5Trainset(dataset_config.TRAIN_HDF5_PATH, 20, 200)
-    data_loader = DataLoader(trainset, batch_size=train_config.BATCH_SIZE, shuffle=True)
+    ap.add_argument('--epochs', type=int, default=20, help='Number of epochs')
+    ap.add_argument('--batch_size', type=int, default=1024, help='Batch size')
+    ap.add_argument('--accumulate_batches', type=int, default=1,
+                    help='Update weights after this many batches')
+    ap.add_argument('--working_dir', default='train', help='Working directory for checkpoints and logs')
+
+    args = ap.parse_args()
+
+    trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len)
+    train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     if torch.cuda.is_available():
         # cuda:0 will still use all GPUs
@@ -35,24 +40,7 @@ if __name__ == '__main__':
     else:
         device = torch.device('cpu')
 
-    model = DuetV2(75463, 128, out_features=1).to(device)
-    loss = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters())
-
-    for epoch in range(20):
-        model.train()
-
-        for batch in tqdm(data_loader, desc='epoch {}'.format(epoch + 1)):
-            batch = [x.to(device) for x in batch]
-            query, pos_doc, neg_doc, pos_imat, neg_imat, labels = batch
-            pos_out = model(query, pos_doc, pos_imat)
-            neg_out = model(query, neg_doc, neg_imat)
-
-            total_out = torch.cat([pos_out, neg_out], 1)
-
-            batch_loss = loss(total_out, labels)
-            batch_loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-        print(batch_loss)
+    model = DuetV2(num_embeddings=args.VOCAB_SIZE, h_dim=args.hidden_dim, out_features=1)
+    model = model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    train_model_pairwise(model, train_dataloader, optimizer, nn.CrossEntropyLoss(), device, args)
