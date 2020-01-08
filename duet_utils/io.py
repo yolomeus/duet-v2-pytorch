@@ -71,3 +71,16 @@ class DatasetConfigLoader:
         elif dataset_name == 'InsuranceQA':
             return load_config(config_module, self.INSURANCE_QA)
         raise NotImplementedError()
+
+
+def batch_to_device(batch, device):
+    """Take a multi input batch and send it to a pytorch device.
+
+    Args:
+        batch: A batch of multiple inputs i.e. a list of single input batches.
+        device: a pytorch device to send the batch to.
+
+    Returns:
+
+    """
+    return [y.to(device) for y in batch]

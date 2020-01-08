@@ -34,12 +34,10 @@ class DuetHdf5Trainset(DuetHdf5Dataset):
         pos_docs = self._pad_to(self.pos_docs[index], self.max_doc_len)
         neg_docs = self._pad_to(self.neg_docs[index], self.max_doc_len)
 
-        return (queries,
-                pos_docs,
-                neg_docs,
-                self.pos_imats[index],
-                self.neg_imats[index],
-                0)
+        pos_sample = queries, pos_docs, self.pos_imats[index]
+        neg_sample = queries, neg_docs, self.neg_imats[index]
+
+        return pos_sample, neg_sample, 0
 
     def __len__(self):
         return len(self.queries)
