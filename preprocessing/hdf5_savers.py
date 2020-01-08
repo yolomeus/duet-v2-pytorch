@@ -8,7 +8,7 @@ from config import FiQAConfig
 from preprocessing import tokenizers
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
 from qa_utils.preprocessing.fiqa import FiQA
-from duet_utils.io import dump_pkl_file
+from qa_utils.io import dump_pkl_file
 from duet_utils.text import build_vocab, compute_idfs
 
 

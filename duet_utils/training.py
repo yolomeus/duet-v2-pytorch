@@ -4,7 +4,7 @@ import os
 import torch
 from tqdm import tqdm
 
-from duet_utils.io import batch_to_device
+from qa_utils.io import batch_to_device
 from qa_utils.misc import Logger
 
 
@@ -52,7 +52,24 @@ def train_model_pairwise(model, train_dl, optimizer, criterion, device, args):
         print('epoch {} -- loss: {}'.format(epoch + 1, epoch_loss))
         logger.log([epoch + 1, epoch_loss])
 
-        state = {'epoch': epoch + 1, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}
+        state = {'epoch': epoch + 1, 'state_dict': model.module.state_dict(), 'optimizer': optimizer.state_dict()}
         fname = os.path.join(ckpt_dir, 'weights_{:03d}.pt'.format(epoch + 1))
         print('saving {}...'.format(fname))
         torch.save(state, fname)
+
+
+def get_available_cuda():
+    """Get the pytorch cuda device if available.
+
+    Returns: A cuda device if available, cpu device else.
+
+    """
+    if torch.cuda.is_available():
+        # cuda:0 will still use all GPUs
+        device = torch.device('cuda:0')
+        dev_name = torch.cuda.get_device_name(torch.cuda.current_device())
+        print('using {} device(s): "{}"'.format(torch.cuda.device_count(), dev_name))
+    else:
+        device = torch.device('cpu')
+
+    return device
