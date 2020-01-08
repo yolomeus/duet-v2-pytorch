@@ -40,7 +40,12 @@ if __name__ == '__main__':
     else:
         device = torch.device('cpu')
 
-    model = DuetV2(num_embeddings=args.VOCAB_SIZE, h_dim=args.hidden_dim, out_features=1)
+    model = DuetV2(num_embeddings=args.VOCAB_SIZE,
+                   h_dim=args.hidden_dim,
+                   max_q_len=args.max_q_len,
+                   max_d_len=args.max_d_len,
+                   dropout_rate=args.dropout,
+                   out_features=1)
     model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     train_model_pairwise(model, train_dataloader, optimizer, nn.CrossEntropyLoss(), device, args)

@@ -3,37 +3,50 @@ from torch import nn
 
 
 class DuetV2(torch.nn.Module):
-    def __init__(self, num_embeddings, h_dim, out_features):
+    def __init__(self, num_embeddings, h_dim, max_q_len, max_d_len, dropout_rate, out_features):
         super().__init__()
         self.embedding = nn.Embedding(num_embeddings, h_dim)
-        self.linear = nn.Linear(70000, h_dim)
-        self.linear2 = nn.Linear(h_dim, h_dim)
-        self.linear3 = nn.Linear(h_dim, h_dim)
-        self.linear4 = nn.Linear(h_dim, h_dim)
-        self.out = nn.Linear(h_dim, out_features)
-        self.relu = nn.ReLU()
+
+        self.local_model = DuetV2Local(h_dim, max_q_len, max_d_len, dropout_rate)
+
+        self.linear_out = nn.Linear(h_dim, out_features)
 
     def forward(self, query, doc, imat):
-        query_embed = self.embedding(query)
-        doc_embed = self.embedding(doc)
-        flattened_inputs = [x.view(x.size(0), -1) for x in [query_embed, doc_embed, imat]]
-        x = torch.cat(flattened_inputs, -1)
-        x = self.linear(x)
-        x = self.relu(x)
-        x = self.linear2(x)
-        x = self.relu(x)
-        x = self.linear3(x)
-        x = self.relu(x)
-        x = self.linear4(x)
-        x = self.relu(x)
-        x = self.out(x)
-        return x
+        # query_embed = self.embedding(query)
+        # doc_embed = self.embedding(doc)
+        x = self.local_model(imat)
+        return self.linear_out(x)
 
 
 class DuetV2Local(torch.nn.Module):
     """The local part of the Duet model which is trained on a query - document interaction matrix.
     """
-    pass
+
+    def __init__(self, h_dim, max_q_len, max_d_len, dropout_rate):
+        super().__init__()
+
+        self.conv1d = nn.Conv1d(max_d_len, h_dim, kernel_size=1)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_rate)
+        self.flatten = nn.Flatten()
+        self.linear_0 = nn.Linear(h_dim * max_q_len, h_dim)
+        self.linear_1 = nn.Linear(h_dim, h_dim)
+
+    def forward(self, imat):
+        x = torch.transpose(imat, -1, -2)
+        x = self.conv1d(x)
+        x = self.relu(x)
+        x = self.flatten(x)
+
+        x = self.dropout(x)
+        x = self.linear_0(x)
+        x = self.relu(x)
+
+        x = self.dropout(x)
+        x = self.linear_1(x)
+        x = self.relu(x)
+
+        return self.dropout(x)
 
 
 class DuetV2Distributed(torch.nn.Module):
