@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from config import FiQADatasetConfig
+from config import FiQAConfig
 from preprocessing import tokenizers
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
 from qa_utils.preprocessing.fiqa import FiQA
@@ -182,25 +182,25 @@ class DuetHhdf5Saver(Hdf5Saver):
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
 
     def _define_trainset(self, dataset_fp, n_out_examples):
-        vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
-        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_uint32)
-        dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_uint32)
-        dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_uint32)
+        vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
+        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_int64)
+        dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_int64)
+        dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_int64)
 
         imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
         dataset_fp.create_dataset('pos_imats', shape=imat_shape, dtype=np.dtype('float32'))
         dataset_fp.create_dataset('neg_imats', shape=imat_shape, dtype=np.dtype('float32'))
 
     def _define_candidate_set(self, dataset_fp, n_out_examples):
-        vlen_uint32 = h5py.special_dtype(vlen=np.dtype('uint32'))
-        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_uint32)
-        dataset_fp.create_dataset('docs', shape=(n_out_examples,), dtype=vlen_uint32)
+        vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
+        dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_int64)
+        dataset_fp.create_dataset('docs', shape=(n_out_examples,), dtype=vlen_int64)
 
         imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
         dataset_fp.create_dataset('imats', shape=imat_shape, dtype=np.dtype('float32'))
 
-        dataset_fp.create_dataset('q_ids', shape=(n_out_examples,), dtype=np.dtype('uint32'))
-        dataset_fp.create_dataset('labels', shape=(n_out_examples,), dtype=np.dtype('uint32'))
+        dataset_fp.create_dataset('q_ids', shape=(n_out_examples,), dtype=np.dtype('int64'))
+        dataset_fp.create_dataset('labels', shape=(n_out_examples,), dtype=np.dtype('int64'))
 
     def _n_out_samples(self, dataset):
         if isinstance(dataset, Trainset):
@@ -295,7 +295,8 @@ class DuetHhdf5Saver(Hdf5Saver):
 
 
 if __name__ == '__main__':
-    conf = FiQADatasetConfig()
+    # TODO proper script for data generation
+    conf = FiQAConfig()
     fiqa = FiQA(args=conf)
     saver = DuetHhdf5Saver(fiqa,
                            20,
