@@ -1,14 +1,70 @@
+import csv
+import os
 from argparse import ArgumentParser
 
 import torch
-from torch import nn, optim
+from torch import optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from data_source import DuetHdf5Trainset
-from duet_utils.training import train_model_pairwise, get_available_cuda
 from duetv2_model import DuetV2
+from qa_utils.io import batch_to_device, get_cuda_device
+from qa_utils.misc import Logger
 
-if __name__ == '__main__':
+
+def train_model_pairwise_ce(model, train_dl, optimizer, device, args):
+    """Train a model using pairwise CrossentropyLoss. Save the model after each epoch and log the loss in
+        a file.
+
+        Arguments:
+            model {torch.nn.Module} -- The model to train
+            train_dl {torch.utils.data.DataLoader} -- Train dataloader
+            optimizer {torch.optim.Optimizer} -- Optimizer
+            args {argparse.Namespace} -- All command line arguments
+            device {torch.device} -- Device to train on
+        """
+    ckpt_dir = os.path.join(args.working_dir, 'ckpt')
+    log_file = os.path.join(args.working_dir, 'train.csv')
+    os.makedirs(ckpt_dir, exist_ok=True)
+    logger = Logger(log_file, ['epoch', 'loss'])
+
+    # save all args in a file
+    args_file = os.path.join(args.working_dir, 'args.csv')
+    print('writing {}...'.format(args_file))
+    with open(args_file, 'w') as fp:
+        writer = csv.writer(fp)
+        for arg in vars(args):
+            writer.writerow([arg, getattr(args, arg)])
+
+    criterion = torch.nn.CrossEntropyLoss()
+    model.train()
+    for epoch in range(args.epochs):
+        loss_sum = 0
+        optimizer.zero_grad()
+        for i, (b_pos, b_neg, b_y) in enumerate(tqdm(train_dl, desc='epoch {}'.format(epoch + 1))):
+            pos_out = model(*batch_to_device(b_pos, device))
+            neg_out = model(*batch_to_device(b_neg, device))
+            out = torch.cat([pos_out, neg_out], 1)
+
+            loss = criterion(out, b_y.to(device)) / args.accumulate_batches
+            loss.backward()
+            if (i + 1) % args.accumulate_batches == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+            loss_sum += loss.item()
+
+        epoch_loss = loss_sum / len(train_dl)
+        print('epoch {} -- loss: {}'.format(epoch + 1, epoch_loss))
+        logger.log([epoch + 1, epoch_loss])
+
+        state = {'epoch': epoch + 1, 'state_dict': model.module.state_dict(), 'optimizer': optimizer.state_dict()}
+        fname = os.path.join(ckpt_dir, 'weights_{:03d}.pt'.format(epoch + 1))
+        print('saving {}...'.format(fname))
+        torch.save(state, fname)
+
+
+def main():
     ap = ArgumentParser(description='Train the DUET model.')
     ap.add_argument('TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
     ap.add_argument('VOCAB_SIZE', type=int, help='Size of the vocabulary in the training file.')
@@ -32,7 +88,7 @@ if __name__ == '__main__':
     trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len)
     train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
-    device = get_available_cuda()
+    device = get_cuda_device()
 
     model = DuetV2(num_embeddings=args.VOCAB_SIZE,
                    h_dim=args.hidden_dim,
@@ -44,4 +100,8 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model)
 
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-    train_model_pairwise(model, train_dataloader, optimizer, nn.CrossEntropyLoss(), device, args)
+    train_model_pairwise_ce(model, train_dataloader, optimizer, device, args)
+
+
+if __name__ == '__main__':
+    main()
