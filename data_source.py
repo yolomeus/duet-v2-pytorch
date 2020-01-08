@@ -41,3 +41,28 @@ class DuetHdf5Trainset(DuetHdf5Dataset):
 
     def __len__(self):
         return len(self.queries)
+
+
+class DuetHdf5Testset(DuetHdf5Dataset):
+    def __init__(self, file_path, max_query_len, max_doc_len):
+        super().__init__(file_path, max_query_len, max_doc_len)
+        fp = self.fp
+        self.q_ids = fp['q_ids']
+
+        self.queries = fp['queries']
+        self.docs = fp['docs']
+        self.imats = fp['imats']
+
+        self.labels = fp['labels']
+
+    def __getitem__(self, index):
+        qids = self.q_ids[index]
+        inputs = (self._pad_to(self.queries[index], self.max_query_len),
+                  self._pad_to(self.docs[index], self.max_doc_len),
+                  self.imats[index])
+        labels = self.labels[index]
+
+        return qids, inputs, labels
+
+    def __len__(self):
+        return len(self.queries)
