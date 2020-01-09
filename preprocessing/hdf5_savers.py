@@ -4,12 +4,11 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from config import FiQAConfig
+from config import MSMConfig
 from preprocessing.tokenizer import DuetTokenizer
-
-from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
-from qa_utils.preprocessing.fiqa import FiQA
 from qa_utils.io import dump_pkl_file
+from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
+from qa_utils.preprocessing.msmarco import MSMARCO
 from qa_utils.text import build_vocab, compute_idfs
 
 
@@ -182,6 +181,9 @@ class DuetHhdf5Saver(Hdf5Saver):
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
 
+        self.dataset.transform_docs(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_doc_len]))
+        self.dataset.transform_queries(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_query_len]))
+
     def _define_trainset(self, dataset_fp, n_out_examples):
         vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
         dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_int64)
@@ -213,23 +215,14 @@ class DuetHhdf5Saver(Hdf5Saver):
             raise TypeError('Dataset needs to be of type Trainset or Testset.')
 
     def _transform_train_row(self, query, pos_doc, neg_docs):
-        q_tokens = self.tokenizer.tokenize(query)
-        q_ids = self._words_to_index(q_tokens)[:self.max_query_len]
-
-        pos_tokens = self.tokenizer.tokenize(pos_doc)
-        pos_ids = self._words_to_index(pos_tokens)[:self.max_doc_len]
-
-        neg_docs_ids = [self._words_to_index(self.tokenizer.tokenize(neg_doc))[:self.max_doc_len] for neg_doc in
-                        neg_docs]
-
-        pos_imat = self._build_interaction_matrix(q_ids, pos_ids)
+        pos_imat = self._build_interaction_matrix(query, pos_doc)
         neg_imats = []
 
-        for neg_ids in neg_docs_ids:
-            neg_imat = self._build_interaction_matrix(q_ids, neg_ids)
+        for neg_ids in neg_docs:
+            neg_imat = self._build_interaction_matrix(query, neg_ids)
             neg_imats.append(neg_imat)
 
-        return q_ids, pos_ids, neg_docs_ids, pos_imat, neg_imats
+        return query, pos_doc, neg_docs, pos_imat, neg_imats
 
     def _save_train_row(self, q_ids, pos_ids, neg_docs_ids, pos_imat, neg_imats):
         fp = self.train_out
@@ -243,15 +236,8 @@ class DuetHhdf5Saver(Hdf5Saver):
             self.idx += 1
 
     def _transform_candidate_row(self, q_id, query, doc, label):
-        q_tokens = self.tokenizer.tokenize(query)
-        q_ids = self._words_to_index(q_tokens)[:self.max_query_len]
-
-        doc_tokens = self.tokenizer.tokenize(doc)
-        doc_ids = self._words_to_index(doc_tokens)[:self.max_doc_len]
-
-        imat = self._build_interaction_matrix(q_ids, doc_ids)
-
-        return q_id, q_ids, doc_ids, imat, label
+        imat = self._build_interaction_matrix(query, doc)
+        return q_id, query, doc, imat, label
 
     def _save_candidate_row(self, fp, q_id, q_ids, doc_ids, imat, label):
         fp['q_ids'][self.idx] = q_id
@@ -304,13 +290,14 @@ class DuetHhdf5Saver(Hdf5Saver):
 
 if __name__ == '__main__':
     # TODO proper script for data generation
-    conf = FiQAConfig()
-    fiqa = FiQA(args=conf)
-    saver = DuetHhdf5Saver(fiqa,
+    conf = MSMConfig()
+    msm = MSMARCO(args=conf)
+    saver = DuetHhdf5Saver(msm,
                            20,
                            200,
-                           './data/fiqa/vocabulary.pkl',
-                           './data/fiqa/train.hdf5',
-                           './data/fiqa/dev.hdf5',
-                           './data/fiqa/test.hdf5')
+                           './data/msm/vocabulary.pkl',
+                           './data/msm/train.hdf5',
+                           './data/msm/dev.hdf5',
+                           None,
+                           max_vocab_size=80000)
     saver.build_all()
