@@ -283,7 +283,7 @@ class DuetHhdf5Saver(Hdf5Saver):
 
         return m
 
-    def _words_to_index(self, words):
+    def _words_to_index(self, words, unknown_token='<UNK>'):
         """Turns a list of words into integer indices using self.word_to_index.
 
         Args:
@@ -292,7 +292,14 @@ class DuetHhdf5Saver(Hdf5Saver):
         Returns:
             list(int): a list if integers encoding words.
         """
-        return [self.word_to_index[token] for token in words]
+        tokens = []
+        for token in words:
+            try:
+                tokens.append(self.word_to_index[token])
+            # out of vocabulary
+            except KeyError:
+                tokens.append(self.word_to_index[unknown_token])
+        return tokens
 
 
 if __name__ == '__main__':
