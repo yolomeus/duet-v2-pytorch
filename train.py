@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from data_source import DuetHdf5Trainset
 from duetv2_model import DuetV2
-from qa_utils.io import batch_to_device, get_cuda_device
+from qa_utils.io import batch_to_device, get_cuda_device, load_pkl_file
 from qa_utils.misc import Logger
 
 
@@ -32,7 +32,7 @@ def train_model_pairwise_ce(model, train_dl, optimizer, device, args):
     # save all args in a file
     args_file = os.path.join(args.working_dir, 'args.csv')
     print('writing {}...'.format(args_file))
-    with open(args_file, 'w') as fp:
+    with open(args_file, 'w', newline='') as fp:
         writer = csv.writer(fp)
         for arg in vars(args):
             writer.writerow([arg, getattr(args, arg)])
@@ -67,7 +67,10 @@ def train_model_pairwise_ce(model, train_dl, optimizer, device, args):
 def main():
     ap = ArgumentParser(description='Train the DUET model.')
     ap.add_argument('TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
-    ap.add_argument('VOCAB_SIZE', type=int, help='Size of the vocabulary in the training file.')
+    ap.add_argument('VOCAB_FILE', help='Pickle file containing the mapping from ids to words.')
+
+    ap.add_argument('--glove_name', default='840B', help='GloVe embedding name')
+    ap.add_argument('--glove_cache', default='glove_cache', help='Glove cache directory.')
 
     ap.add_argument('--max_q_len', type=int, default=20, help='Maximum query length.')
     ap.add_argument('--max_d_len', type=int, default=200, help='Maximum document legth.')
@@ -82,20 +85,24 @@ def main():
     ap.add_argument('--accumulate_batches', type=int, default=1,
                     help='Update weights after this many batches')
     ap.add_argument('--working_dir', default='train', help='Working directory for checkpoints and logs')
+    ap.add_argument('--random_seed', type=int, default=98365374635, help='Random seed')
 
     args = ap.parse_args()
+
+    torch.manual_seed(args.random_seed)
 
     trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len)
     train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     device = get_cuda_device()
-
-    model = DuetV2(num_embeddings=args.VOCAB_SIZE,
+    id_to_word = load_pkl_file(args.VOCAB_FILE)
+    model = DuetV2(id_to_word=id_to_word,
+                   glove_name=args.glove_name,
+                   glove_cache=args.glove_cache,
                    h_dim=args.hidden_dim,
                    max_q_len=args.max_q_len,
                    max_d_len=args.max_d_len,
-                   dropout_rate=args.dropout,
-                   out_features=1)
+                   dropout_rate=args.dropout)
     model = model.to(device)
     model = torch.nn.DataParallel(model)
 

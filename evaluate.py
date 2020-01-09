@@ -7,7 +7,7 @@ from data_source import DuetHdf5Testset
 
 from duetv2_model import DuetV2
 from qa_utils.evaluation import read_args, evaluate_all
-from qa_utils.io import get_cuda_device
+from qa_utils.io import get_cuda_device, load_pkl_file
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -31,12 +31,14 @@ if __name__ == '__main__':
 
     device = get_cuda_device()
 
-    model = DuetV2(num_embeddings=int(train_args['VOCAB_SIZE']),
+    id_to_word = load_pkl_file(train_args['VOCAB_FILE'])
+    model = DuetV2(id_to_word=id_to_word,
+                   glove_name=train_args['glove_name'],
+                   glove_cache=train_args['glove_cache'],
                    h_dim=int(train_args['hidden_dim']),
                    max_q_len=int(train_args['max_q_len']),
                    max_d_len=int(train_args['max_d_len']),
-                   dropout_rate=float(train_args['dropout']),
-                   out_features=1)
+                   dropout_rate=float(train_args['dropout']))
     model.to(device)
     model = torch.nn.DataParallel(model)
     evaluate_all(model, args.WORKING_DIR, dev_dl, test_dl, args.mrr_k, device, multi_input_model=True)
