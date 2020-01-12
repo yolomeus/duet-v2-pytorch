@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import torch
 from torch.utils.data import DataLoader
@@ -27,8 +28,10 @@ if __name__ == '__main__':
     dev_set = DuetHdf5Testset(args.DEV_DATA, max_q_len, max_d_len, idfs)
     test_set = DuetHdf5Testset(args.TEST_DATA, max_q_len, max_d_len, idfs)
 
-    dev_dl = DataLoader(dev_set, batch_size=args.batch_size, shuffle=False, pin_memory=True)
-    test_dl = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, pin_memory=True)
+    dev_dl = DataLoader(dev_set, batch_size=args.batch_size, shuffle=False, pin_memory=True,
+                        num_workers=os.cpu_count() / 2)
+    test_dl = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, pin_memory=True,
+                         num_workers=os.cpu_count() / 2)
 
     device = get_cuda_device()
 
@@ -43,4 +46,4 @@ if __name__ == '__main__':
                    dropout_rate=float(train_args['dropout']))
     model.to(device)
     model = torch.nn.DataParallel(model)
-    evaluate_all(model, args.WORKING_DIR, dev_dl, test_dl, args.mrr_k, device, multi_input_model=True)
+    evaluate_all(model, args.WORKING_DIR, dev_dl, test_dl, args.mrr_k, device, has_multiple_inputs=True)

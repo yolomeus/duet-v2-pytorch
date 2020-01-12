@@ -95,7 +95,8 @@ def main():
 
     idfs = load_pkl_file(args.IDF_FILE)
     trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len, idfs)
-    train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
+    train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                                  num_workers=os.cpu_count() / 2)
 
     device = get_cuda_device()
     id_to_word = load_pkl_file(args.VOCAB_FILE)
