@@ -4,10 +4,11 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from config import MSMConfig
+from config import MSMConfig, FiQAConfig
 from preprocessing.tokenizer import DuetTokenizer
 from qa_utils.io import dump_pkl_file
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
+from qa_utils.preprocessing.fiqa import FiQA
 from qa_utils.preprocessing.msmarco import MSMARCO
 from qa_utils.text import build_vocab, compute_idfs
 
@@ -152,7 +153,8 @@ class DuetHhdf5Saver(Hdf5Saver):
     DUET V2.
     """
 
-    def __init__(self, dataset: Dataset, max_query_len, max_doc_len, vocab_outfile, *args, max_vocab_size=None,
+    def __init__(self, dataset: Dataset, max_query_len, max_doc_len, vocab_outfile, idf_outfile, *args,
+                 max_vocab_size=None,
                  **kwargs):
         """Construct a hdf5 saver for qa_util Datasets.
 
@@ -180,7 +182,9 @@ class DuetHhdf5Saver(Hdf5Saver):
         self.idfs = compute_idfs(vocab_tokens, dataset.docs.values(), self.tokenizer)
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
-
+        dump_pkl_file(self.idfs, idf_outfile)
+        # TODO build vocab from transformed
+        print("indexing docs and queries...")
         self.dataset.transform_docs(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_doc_len]))
         self.dataset.transform_queries(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_query_len]))
 
@@ -190,17 +194,10 @@ class DuetHhdf5Saver(Hdf5Saver):
         dataset_fp.create_dataset('pos_docs', shape=(n_out_examples,), dtype=vlen_int64)
         dataset_fp.create_dataset('neg_docs', shape=(n_out_examples,), dtype=vlen_int64)
 
-        imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
-        dataset_fp.create_dataset('pos_imats', shape=imat_shape, dtype=np.dtype('float32'))
-        dataset_fp.create_dataset('neg_imats', shape=imat_shape, dtype=np.dtype('float32'))
-
     def _define_candidate_set(self, dataset_fp, n_out_examples):
         vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
         dataset_fp.create_dataset('queries', shape=(n_out_examples,), dtype=vlen_int64)
         dataset_fp.create_dataset('docs', shape=(n_out_examples,), dtype=vlen_int64)
-
-        imat_shape = (n_out_examples, self.max_query_len, self.max_doc_len)
-        dataset_fp.create_dataset('imats', shape=imat_shape, dtype=np.dtype('float32'))
 
         dataset_fp.create_dataset('q_ids', shape=(n_out_examples,), dtype=np.dtype('int64'))
         dataset_fp.create_dataset('labels', shape=(n_out_examples,), dtype=np.dtype('int64'))
@@ -215,59 +212,29 @@ class DuetHhdf5Saver(Hdf5Saver):
             raise TypeError('Dataset needs to be of type Trainset or Testset.')
 
     def _transform_train_row(self, query, pos_doc, neg_docs):
-        pos_imat = self._build_interaction_matrix(query, pos_doc)
-        neg_imats = []
+        return query, pos_doc, neg_docs
 
-        for neg_ids in neg_docs:
-            neg_imat = self._build_interaction_matrix(query, neg_ids)
-            neg_imats.append(neg_imat)
-
-        return query, pos_doc, neg_docs, pos_imat, neg_imats
-
-    def _save_train_row(self, q_ids, pos_ids, neg_docs_ids, pos_imat, neg_imats):
+    def _save_train_row(self, q_ids, pos_ids, neg_docs_ids):
         fp = self.train_out
-        for neg_ids, neg_imat in zip(neg_docs_ids, neg_imats):
+        for neg_ids in neg_docs_ids:
             fp['queries'][self.idx] = q_ids
             fp['pos_docs'][self.idx] = pos_ids
             fp['neg_docs'][self.idx] = neg_ids
 
-            fp['pos_imats'][self.idx] = pos_imat
-            fp['neg_imats'][self.idx] = neg_imat
             self.idx += 1
 
     def _transform_candidate_row(self, q_id, query, doc, label):
-        imat = self._build_interaction_matrix(query, doc)
-        return q_id, query, doc, imat, label
+        return q_id, query, doc, label
 
-    def _save_candidate_row(self, fp, q_id, q_ids, doc_ids, imat, label):
+    def _save_candidate_row(self, fp, q_id, q_ids, doc_ids, label):
         fp['q_ids'][self.idx] = q_id
 
         fp['queries'][self.idx] = q_ids
         fp['docs'][self.idx] = doc_ids
-        fp['imats'][self.idx] = imat
 
         fp['labels'][self.idx] = label
 
         self.idx += 1
-
-    def _build_interaction_matrix(self, q_ids, doc_ids):
-        """Helper method for building a IDF-weighted interaction matrix between a query and document. An entry at (i, j)
-        is the IDF of the i-th word in the query if it matches the j-th word in the document or 0 else.
-
-        Args:
-            q_ids (Iterable): integer ids representing the words in the query.
-            doc_ids (Iterable): integer ids representing the words in the document.
-        Returns:
-            numpy.ndarray: A 2-D interaction matrix.
-        """
-        m = np.zeros(shape=(self.max_query_len, self.max_doc_len))
-        for i in range(len(q_ids)):
-            for j in range(len(doc_ids)):
-                cur_qid = q_ids[i]
-                if cur_qid == doc_ids[j]:
-                    m[i, j] = self.idfs[cur_qid]
-
-        return m
 
     def _words_to_index(self, words, unknown_token='<UNK>'):
         """Turns a list of words into integer indices using self.word_to_index.
@@ -290,14 +257,29 @@ class DuetHhdf5Saver(Hdf5Saver):
 
 if __name__ == '__main__':
     # TODO proper script for data generation
+    # conf = FiQAConfig()
+    # fiqa = FiQA(args=conf)
+    # saver = DuetHhdf5Saver(fiqa,
+    #                        20,
+    #                        200,
+    #                        './data/fiqa/vocabulary.pkl',
+    #                        './data/fiqa/idfs.pkl',
+    #                        './data/fiqa/train.hdf5',
+    #                        './data/fiqa/dev.hdf5',
+    #                        './data/fiqa/test.hdf5')
+    #
+    # saver.build_all()
+
     conf = MSMConfig()
     msm = MSMARCO(args=conf)
     saver = DuetHhdf5Saver(msm,
                            20,
                            200,
                            './data/msm/vocabulary.pkl',
+                           './data/msm/idfs.pkl',
                            './data/msm/train.hdf5',
                            './data/msm/dev.hdf5',
                            None,
                            max_vocab_size=80000)
+
     saver.build_all()

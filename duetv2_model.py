@@ -7,7 +7,7 @@ class DuetV2(torch.nn.Module):
     """Implementation of the DuetV2 model.
     """
 
-    def __init__(self, id_to_word, glove_name, glove_cache, h_dim, max_q_len, max_d_len, dropout_rate,
+    def __init__(self, id_to_word, glove_name, glove_cache, glove_dim, h_dim, max_q_len, max_d_len, dropout_rate,
                  pooling_size_doc=100):
         """
 
@@ -28,6 +28,7 @@ class DuetV2(torch.nn.Module):
         self.distributed_model = DuetV2Distributed(id_to_word,
                                                    glove_name,
                                                    glove_cache,
+                                                   glove_dim,
                                                    h_dim,
                                                    dropout_rate,
                                                    pooling_size_doc,
@@ -54,7 +55,7 @@ class DuetV2(torch.nn.Module):
         local = self.local_model(imat)
         dist = self.distributed_model(query, doc)
 
-        x = local + dist
+        x = dist + local
         x = self.linear_0(x)
         x = self.relu(x)
         x = self.dropout(x)
@@ -92,8 +93,7 @@ class DuetV2Local(torch.nn.Module):
         self.linear_1 = nn.Linear(h_dim, h_dim)
 
     def forward(self, imat):
-        x = torch.transpose(imat, -1, -2)
-        x = self.conv1d(x)
+        x = self.conv1d(imat)
         x = self.relu(x)
         x = self.flatten(x)
 
@@ -113,7 +113,8 @@ class DuetV2Distributed(torch.nn.Module):
     word embeddings.
     """
 
-    def __init__(self, id_to_word, glove_name, glove_cache, h_dim, dropout, pooling_size_doc, pooling_size_query,
+    def __init__(self, id_to_word, glove_name, glove_cache, glove_dim, h_dim, dropout, pooling_size_doc,
+                 pooling_size_query,
                  max_d_len):
         """
 
@@ -132,12 +133,12 @@ class DuetV2Distributed(torch.nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
 
-        self.glove = GloveEmbedding(id_to_word, glove_name, h_dim, cache=glove_cache, padding_idx=0)
-        self.conv1d_query = nn.Conv1d(h_dim, h_dim, kernel_size=3)
+        self.glove = GloveEmbedding(id_to_word, glove_name, glove_dim, cache=glove_cache, padding_idx=0)
+        self.conv1d_query = nn.Conv1d(glove_dim, h_dim, kernel_size=3)
         self.linear_query = nn.Linear(h_dim, h_dim)
         self.max_pool_query = nn.MaxPool1d(pooling_size_query)
 
-        self.conv1d_doc_0 = nn.Conv1d(h_dim, h_dim, kernel_size=3)
+        self.conv1d_doc_0 = nn.Conv1d(glove_dim, h_dim, kernel_size=3)
         self.conv1d_doc_1 = nn.Conv1d(h_dim, h_dim, kernel_size=1)
         self.max_pool_doc = nn.MaxPool1d(pooling_size_doc, stride=1)
 
@@ -146,7 +147,7 @@ class DuetV2Distributed(torch.nn.Module):
         self.comb_linear_1 = nn.Linear(h_dim, h_dim)
 
     def forward(self, query, doc):
-        query_embeds = self.glove(query).permute(0, 2, 1)  # swap channel dimension for conv1d
+        query_embeds = self.glove(query).permute(0, 2, 1)  # swap channel with time dimension for conv1d
         doc_embeds = self.glove(doc).permute(0, 2, 1)
 
         q = self.conv1d_query(query_embeds)
@@ -183,20 +184,28 @@ class GloveEmbedding(torch.nn.Module):
         self.id_to_word = id_to_word
         self.name = name
         self.dim = dim
+        self.padding_idx = padding_idx
         self.glove = vocab.GloVe(name=name, dim=dim, cache=cache)
         weights = self._get_weights()
-        self.embedding = torch.nn.Embedding.from_pretrained(weights, freeze=freeze, padding_idx=padding_idx)
+        self.embedding = torch.nn.Embedding.from_pretrained(weights, freeze=freeze)
 
     def _get_weights(self):
         weights = []
+        i = 0
         for idx in sorted(self.id_to_word):
             word = self.id_to_word[idx]
+            if i == self.padding_idx:
+                weights.append(torch.zeros([self.dim]))
+                i += 1
+                continue
             if word in self.glove.stoi:
                 glove_idx = self.glove.stoi[word]
                 weights.append(self.glove.vectors[glove_idx])
+                i += 1
             else:
                 # initialize randomly
                 weights.append(torch.zeros([self.dim]).uniform_(-0.25, 0.25))
+        print(f'Imported {i} words from GloVe')
         # this converts a list of tensors to a new tensor
         return torch.stack(weights)
 

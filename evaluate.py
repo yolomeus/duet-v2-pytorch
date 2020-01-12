@@ -23,8 +23,9 @@ if __name__ == '__main__':
     max_q_len = int(train_args['max_q_len'])
     max_d_len = int(train_args['max_d_len'])
 
-    dev_set = DuetHdf5Testset(args.DEV_DATA, max_q_len, max_d_len)
-    test_set = DuetHdf5Testset(args.TEST_DATA, max_q_len, max_d_len)
+    idfs = load_pkl_file(train_args['IDF_FILE'])
+    dev_set = DuetHdf5Testset(args.DEV_DATA, max_q_len, max_d_len, idfs)
+    test_set = DuetHdf5Testset(args.TEST_DATA, max_q_len, max_d_len, idfs)
 
     dev_dl = DataLoader(dev_set, batch_size=args.batch_size, shuffle=False, pin_memory=True)
     test_dl = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, pin_memory=True)
@@ -35,6 +36,7 @@ if __name__ == '__main__':
     model = DuetV2(id_to_word=id_to_word,
                    glove_name=train_args['glove_name'],
                    glove_cache=train_args['glove_cache'],
+                   glove_dim=int(train_args['glove_dim']),
                    h_dim=int(train_args['hidden_dim']),
                    max_q_len=int(train_args['max_q_len']),
                    max_d_len=int(train_args['max_d_len']),
