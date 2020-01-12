@@ -68,9 +68,11 @@ def main():
     ap = ArgumentParser(description='Train the DUET model.')
     ap.add_argument('TRAIN_DATA', help='Path to an hdf5 file containing the training data.')
     ap.add_argument('VOCAB_FILE', help='Pickle file containing the mapping from ids to words.')
+    ap.add_argument('IDF_FILE', help='Pickle file containing the mapping from ids to words.')
 
     ap.add_argument('--glove_name', default='840B', help='GloVe embedding name')
     ap.add_argument('--glove_cache', default='glove_cache', help='Glove cache directory.')
+    ap.add_argument('--glove_dim', type=int, default=300, help='The dimensionality of the GloVe embeddings')
 
     ap.add_argument('--max_q_len', type=int, default=20, help='Maximum query length.')
     ap.add_argument('--max_d_len', type=int, default=200, help='Maximum document legth.')
@@ -85,13 +87,14 @@ def main():
     ap.add_argument('--accumulate_batches', type=int, default=1,
                     help='Update weights after this many batches')
     ap.add_argument('--working_dir', default='train', help='Working directory for checkpoints and logs')
-    ap.add_argument('--random_seed', type=int, default=98365374635, help='Random seed')
+    ap.add_argument('--random_seed', type=int, default=38852956087345243, help='Random seed')
 
     args = ap.parse_args()
 
     torch.manual_seed(args.random_seed)
 
-    trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len)
+    idfs = load_pkl_file(args.IDF_FILE)
+    trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len, idfs)
     train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     device = get_cuda_device()
@@ -99,6 +102,7 @@ def main():
     model = DuetV2(id_to_word=id_to_word,
                    glove_name=args.glove_name,
                    glove_cache=args.glove_cache,
+                   glove_dim=args.glove_dim,
                    h_dim=args.hidden_dim,
                    max_q_len=args.max_q_len,
                    max_d_len=args.max_d_len,

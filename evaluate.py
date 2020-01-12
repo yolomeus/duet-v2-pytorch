@@ -35,6 +35,7 @@ if __name__ == '__main__':
     model = DuetV2(id_to_word=id_to_word,
                    glove_name=train_args['glove_name'],
                    glove_cache=train_args['glove_cache'],
+                   glove_dim=int(train_args['glove_dim']),
                    h_dim=int(train_args['hidden_dim']),
                    max_q_len=int(train_args['max_q_len']),
                    max_d_len=int(train_args['max_d_len']),
