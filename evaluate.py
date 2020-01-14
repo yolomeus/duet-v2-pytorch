@@ -17,6 +17,7 @@ if __name__ == '__main__':
     ap.add_argument('WORKING_DIR', help='Working directory containing args.csv and a ckpt folder.')
     ap.add_argument('--mrr_k', type=int, default=10, help='Compute MRR@k')
     ap.add_argument('--batch_size', type=int, default=1024, help='Batch size')
+    ap.add_argument('--interval', type=int, default=1, help='Only evaluate every i-th checkpoint.')
     args = ap.parse_args()
 
     train_args = read_args(args.WORKING_DIR)
@@ -46,4 +47,5 @@ if __name__ == '__main__':
                    dropout_rate=float(train_args['dropout']))
     model.to(device)
     model = torch.nn.DataParallel(model)
-    evaluate_all(model, args.WORKING_DIR, dev_dl, test_dl, args.mrr_k, device, has_multiple_inputs=True)
+    evaluate_all(model, args.WORKING_DIR, dev_dl, test_dl, args.mrr_k, device, has_multiple_inputs=True,
+                 interval=args.interval)
