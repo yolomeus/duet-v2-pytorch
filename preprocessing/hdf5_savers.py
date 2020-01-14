@@ -4,12 +4,8 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from config import MSMConfig, FiQAConfig
-from preprocessing.tokenizer import DuetTokenizer
 from qa_utils.io import dump_pkl_file
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
-from qa_utils.preprocessing.fiqa import FiQA
-from qa_utils.preprocessing.msmarco import MSMARCO
 from qa_utils.text import build_vocab, compute_idfs
 
 
@@ -17,7 +13,8 @@ class Hdf5Saver(ABC):
     """Saves a dataset to hdf5 format.
     """
 
-    def __init__(self, dataset: Dataset, train_outfile=None, dev_outfile=None, test_outfile=None):
+    def __init__(self, dataset: Dataset, tokenizer, max_vocab_size, vocab_outfile, train_outfile=None, dev_outfile=None,
+                 test_outfile=None):
         """Construct a h5py saver object. Each dataset that has no output path specified will be ignored, meaning at
         least one output path must be provided.
 
@@ -28,6 +25,9 @@ class Hdf5Saver(ABC):
             test_outfile: path to the hdf5 output file for the test set.
         """
         self.dataset = dataset
+        self.tokenizer = tokenizer
+        self.max_vocab_size = max_vocab_size
+        self.vocab_outfile = vocab_outfile
 
         self.train_outpath = train_outfile
         self.dev_outpath = dev_outfile
@@ -37,6 +37,9 @@ class Hdf5Saver(ABC):
         assert any(out_paths), 'you need to specify at least one output filepath.'
         self.train_out, self.dev_out, self.test_out = (h5py.File(fpath, 'w') if fpath else None for fpath in
                                                        out_paths)
+
+        # tokenize dataset
+        self._build_vocab()
 
     def build_all(self):
         """Exports each split of dataset to hdf5 if an output file was specified for it.
@@ -59,22 +62,47 @@ class Hdf5Saver(ABC):
 
         print('saving to', fp.filename, '...')
         self._define_candidate_set(fp, self._n_out_samples(dataset))
-        self.idx = 0
+        idx = 0
 
         for q_id, query, doc, label in tqdm(dataset):
-            processed_row = self._transform_candidate_row(q_id, query, doc, label)
-            self._save_candidate_row(fp, *processed_row)
+            self._save_candidate_row(fp, q_id, query, doc, label, idx)
+            idx += 1
 
     def _save_train_set(self):
         """Saves the trainset to hdf5.
         """
         print("saving", self.train_outpath, "...")
         self._define_trainset(self.train_out, self._n_out_samples(self.dataset.trainset))
-        self.idx = 0
+        idx = 0
 
         for query, pos_doc, neg_docs in tqdm(self.dataset.trainset):
-            processed_row = self._transform_train_row(query, pos_doc, neg_docs)
-            self._save_train_row(*processed_row)
+            self._save_train_row(self.train_out, query, pos_doc, neg_docs, idx)
+            idx += 1
+
+    def _build_vocab(self):
+        """Build and export a vocabulary given the dataset."""
+        collection = list(self.dataset.queries.values()) + list(self.dataset.docs.values())
+        self.word_to_index = build_vocab(collection, self.tokenizer, max_vocab_size=self.max_vocab_size)
+        self.index_to_word = {v: k for k, v in self.word_to_index.items()}
+        dump_pkl_file(self.index_to_word, self.vocab_outfile)
+
+    def _words_to_index(self, words, unknown_token='<UNK>'):
+        """Turns a list of words into integer indices using self.word_to_index.
+
+        Args:
+            words (list(str)): list of words.
+
+        Returns:
+            list(int): a list if integers encoding words.
+        """
+        tokens = []
+        for token in words:
+            try:
+                tokens.append(self.word_to_index[token])
+            # out of vocabulary
+            except KeyError:
+                tokens.append(self.word_to_index[unknown_token])
+        return tokens
 
     @abstractmethod
     def _define_trainset(self, dataset_fp, n_out_examples):
@@ -107,44 +135,30 @@ class Hdf5Saver(ABC):
         """
 
     @abstractmethod
-    def _transform_train_row(self, query, pos_doc, neg_docs):
-        """This function is applied to each row in the train set as returned by a qa_utils Trainset before saving.
-
-        Args:
-            query (str): a query string.
-            pos_doc (str): a positive document string w.r.t. the query.
-            neg_docs (list(str)): a list of negative documents.
-
-        Returns:
-            The transformed row.
-        """
-
-    @abstractmethod
-    def _transform_candidate_row(self, q_id, query, doc, label):
-        """This function is applied to each row in the test ord dev set as returned by qa_utils Trainset before saving.
-
-                Args:
-
-                Returns:
-                    The transformed row.
-        """
-
-    @abstractmethod
-    def _save_train_row(self, *args):
+    def _save_train_row(self, fp, query, pos_doc, neg_docs, idx):
         """The function that saves an item from the Dataset.trainset after applying _transform_train_row. It's saved to
         a hdf5 file as defined in _define_trainset().
 
         Args:
-            *args: the transformed row returned by _transform_train_row.
+            fp: filepointer to the h5py file.
+            query (list(int)): the tokenized query.
+            pos_doc (list(int)): the tokenized positive document.
+            neg_docs (list(list(int))): list of tokenized negative documents.
+            idx: current sample index.
         """
 
     @abstractmethod
-    def _save_candidate_row(self, *args):
+    def _save_candidate_row(self, fp, q_id, query, doc, label, idx):
         """The function that saves an item from the Dataset.devset or Dataset.trainset after applying
         _transform_candidate_row. It's saved a hdf5 file as defined in _define_candidate_set().
 
         Args:
-            *args: he transformed row returned by _transform_candidate_row.
+            fp: filepointer to the h5py file.
+            q_id: integer identifier for the query.
+            query (list(int)): the tokenized query.
+            doc (list(int)): the tokenized document.
+            label: label for the query document pair.
+            idx: current sample index.
         """
 
 
@@ -153,9 +167,8 @@ class DuetHhdf5Saver(Hdf5Saver):
     DUET V2.
     """
 
-    def __init__(self, dataset: Dataset, max_query_len, max_doc_len, vocab_outfile, idf_outfile, *args,
-                 max_vocab_size=None,
-                 **kwargs):
+    def __init__(self, dataset: Dataset, tokenizer, max_vocab_size, vocab_outfile, idf_outfile, max_query_len,
+                 max_doc_len, train_outfile=None, dev_outfile=None, test_outfile=None):
         """Construct a hdf5 saver for qa_util Datasets.
 
         Args:
@@ -166,16 +179,8 @@ class DuetHhdf5Saver(Hdf5Saver):
             max_vocab_size: the maximum number of words in the vocabulary, only keeping the most frequent ones. Uses all
             if None.
         """
-        super().__init__(dataset, *args, **kwargs)
-        self.max_query_len = max_query_len
-        self.max_doc_len = max_doc_len
 
-        self.tokenizer = DuetTokenizer()
-
-        collection = list(dataset.queries.values()) + list(dataset.docs.values())
-        self.word_to_index = build_vocab(collection, self.tokenizer, max_vocab_size=max_vocab_size)
-        self.index_to_word = {v: k for k, v in self.word_to_index.items()}
-        dump_pkl_file(self.index_to_word, vocab_outfile)
+        super().__init__(dataset, tokenizer, max_vocab_size, vocab_outfile, train_outfile, dev_outfile, test_outfile)
 
         # compute idfs for weighting of the interaction matrix
         vocab_tokens = set(self.word_to_index.keys())
@@ -183,10 +188,10 @@ class DuetHhdf5Saver(Hdf5Saver):
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
         dump_pkl_file(self.idfs, idf_outfile)
-        # TODO build vocab from transformed
-        print("indexing docs and queries...")
-        self.dataset.transform_docs(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_doc_len]))
-        self.dataset.transform_queries(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:self.max_query_len]))
+
+        print('tokenizing...')
+        self.dataset.transform_docs(lambda x: self._words_to_index(self.tokenizer.tokenize(x))[:max_doc_len])
+        self.dataset.transform_queries(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:max_query_len]))
 
     def _define_trainset(self, dataset_fp, n_out_examples):
         vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
@@ -211,30 +216,17 @@ class DuetHhdf5Saver(Hdf5Saver):
         else:
             raise TypeError('Dataset needs to be of type Trainset or Testset.')
 
-    def _transform_train_row(self, query, pos_doc, neg_docs):
-        return query, pos_doc, neg_docs
+    def _save_train_row(self, fp, query, pos_doc, neg_docs, idx):
+        for neg_ids in neg_docs:
+            fp['queries'][idx] = query
+            fp['pos_docs'][idx] = pos_doc
+            fp['neg_docs'][idx] = neg_ids
 
-    def _save_train_row(self, q_ids, pos_ids, neg_docs_ids):
-        fp = self.train_out
-        for neg_ids in neg_docs_ids:
-            fp['queries'][self.idx] = q_ids
-            fp['pos_docs'][self.idx] = pos_ids
-            fp['neg_docs'][self.idx] = neg_ids
-
-            self.idx += 1
-
-    def _transform_candidate_row(self, q_id, query, doc, label):
-        return q_id, query, doc, label
-
-    def _save_candidate_row(self, fp, q_id, q_ids, doc_ids, label):
-        fp['q_ids'][self.idx] = q_id
-
-        fp['queries'][self.idx] = q_ids
-        fp['docs'][self.idx] = doc_ids
-
-        fp['labels'][self.idx] = label
-
-        self.idx += 1
+    def _save_candidate_row(self, fp, q_id, query, doc, label, idx):
+        fp['q_ids'][idx] = q_id
+        fp['queries'][idx] = query
+        fp['docs'][idx] = doc
+        fp['labels'][idx] = label
 
     def _words_to_index(self, words, unknown_token='<UNK>'):
         """Turns a list of words into integer indices using self.word_to_index.
@@ -253,33 +245,3 @@ class DuetHhdf5Saver(Hdf5Saver):
             except KeyError:
                 tokens.append(self.word_to_index[unknown_token])
         return tokens
-
-
-if __name__ == '__main__':
-    # TODO proper script for data generation
-    # conf = FiQAConfig()
-    # fiqa = FiQA(args=conf)
-    # saver = DuetHhdf5Saver(fiqa,
-    #                        20,
-    #                        200,
-    #                        './data/fiqa/vocabulary.pkl',
-    #                        './data/fiqa/idfs.pkl',
-    #                        './data/fiqa/train.hdf5',
-    #                        './data/fiqa/dev.hdf5',
-    #                        './data/fiqa/test.hdf5')
-    #
-    # saver.build_all()
-
-    conf = MSMConfig()
-    msm = MSMARCO(args=conf)
-    saver = DuetHhdf5Saver(msm,
-                           20,
-                           200,
-                           './data/msm/vocabulary.pkl',
-                           './data/msm/idfs.pkl',
-                           './data/msm/train.hdf5',
-                           './data/msm/dev.hdf5',
-                           None,
-                           max_vocab_size=80000)
-
-    saver.build_all()
