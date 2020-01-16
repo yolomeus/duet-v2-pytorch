@@ -18,6 +18,7 @@ if __name__ == '__main__':
     ap.add_argument('--mrr_k', type=int, default=10, help='Compute MRR@k')
     ap.add_argument('--batch_size', type=int, default=1024, help='Batch size')
     ap.add_argument('--interval', type=int, default=1, help='Only evaluate every i-th checkpoint.')
+    ap.add_argument('--num_workers', type=int, default=1, help='number of workers used by the dataloader.')
     args = ap.parse_args()
 
     train_args = read_args(args.WORKING_DIR)
@@ -29,10 +30,10 @@ if __name__ == '__main__':
     dev_set = DuetHdf5Testset(args.DEV_DATA, max_q_len, max_d_len, idfs)
     test_set = DuetHdf5Testset(args.TEST_DATA, max_q_len, max_d_len, idfs)
 
-    dev_dl = DataLoader(dev_set, batch_size=args.batch_size, shuffle=False, pin_memory=True,
-                        num_workers=os.cpu_count() // 2)
-    test_dl = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, pin_memory=True,
-                         num_workers=os.cpu_count() // 2)
+    dev_dl = DataLoader(dev_set, batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                        num_workers=args.num_workers)
+    test_dl = DataLoader(test_set, batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                         num_workers=args.num_workers)
 
     device = get_cuda_device()
 

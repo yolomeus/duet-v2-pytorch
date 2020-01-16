@@ -87,7 +87,8 @@ def main():
     ap.add_argument('--accumulate_batches', type=int, default=1,
                     help='Update weights after this many batches')
     ap.add_argument('--working_dir', default='train', help='Working directory for checkpoints and logs')
-    ap.add_argument('--random_seed', type=int, default=38852956087345243, help='Random seed')
+    ap.add_argument('--num_workers', type=int, default=1, help='number of workers used by the dataloader.')
+    ap.add_argument('--random_seed', type=int, default=1579129142, help='Random seed')
 
     args = ap.parse_args()
 
@@ -96,7 +97,7 @@ def main():
     idfs = load_pkl_file(args.IDF_FILE)
     trainset = DuetHdf5Trainset(args.TRAIN_DATA, args.max_q_len, args.max_d_len, idfs)
     train_dataloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True,
-                                  num_workers=os.cpu_count() // 2)
+                                  num_workers=args.num_workers)
 
     device = get_cuda_device()
     id_to_word = load_pkl_file(args.VOCAB_FILE)
