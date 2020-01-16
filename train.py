@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from data_source import DuetHdf5Trainset
 from duetv2_model import DuetV2
-from qa_utils.io import batch_to_device, get_cuda_device, load_pkl_file
+from qa_utils.io import batches_to_device, get_cuda_device, load_pkl_file
 from qa_utils.misc import Logger
 
 
@@ -43,8 +43,8 @@ def train_model_pairwise_ce(model, train_dl, optimizer, device, args):
         loss_sum = 0
         optimizer.zero_grad()
         for i, (b_pos, b_neg, b_y) in enumerate(tqdm(train_dl, desc='epoch {}'.format(epoch + 1))):
-            pos_out = model(*batch_to_device(b_pos, device))
-            neg_out = model(*batch_to_device(b_neg, device))
+            pos_out = model(*batches_to_device(b_pos, device))
+            neg_out = model(*batches_to_device(b_neg, device))
             out = torch.cat([pos_out, neg_out], 1)
 
             loss = criterion(out, b_y.to(device)) / args.accumulate_batches
