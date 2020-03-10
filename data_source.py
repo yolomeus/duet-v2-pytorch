@@ -37,15 +37,19 @@ class DuetHdf5Trainset(DuetHdf5Dataset):
         self.neg_docs = fp['neg_docs']
 
     def __getitem__(self, index):
-        queries = self._pad_to(self.queries[index], self.max_query_len)
+        query = self.queries[index][:self.max_query_len]
+        pos_doc = self.pos_docs[index][:self.max_doc_len]
+        neg_doc = self.neg_docs[index][:self.max_doc_len]
 
-        pos_docs = self._pad_to(self.pos_docs[index], self.max_doc_len)
-        neg_docs = self._pad_to(self.neg_docs[index], self.max_doc_len)
+        queries = self._pad_to(query, self.max_query_len)
 
-        pos_imat = self._build_interaction_matrix(self.queries[index], self.pos_docs[index])
+        pos_docs = self._pad_to(pos_doc, self.max_doc_len)
+        neg_docs = self._pad_to(neg_doc, self.max_doc_len)
+
+        pos_imat = self._build_interaction_matrix(query, pos_doc)
         pos_sample = queries, pos_docs, pos_imat
 
-        neg_imat = self._build_interaction_matrix(self.queries[index], self.neg_docs[index])
+        neg_imat = self._build_interaction_matrix(query, neg_doc)
         neg_sample = queries, neg_docs, neg_imat
 
         return pos_sample, neg_sample, 0
