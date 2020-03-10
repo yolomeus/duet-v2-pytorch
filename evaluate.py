@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from data_source import DuetHdf5Testset
-from duetv2_model import DuetV2
+from model import DuetV2
 from qa_utils.evaluation import read_args, evaluate_all
 from qa_utils.io import get_cuda_device, load_pkl_file
 
