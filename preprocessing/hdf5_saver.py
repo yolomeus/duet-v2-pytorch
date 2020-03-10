@@ -1,3 +1,5 @@
+import itertools
+
 import h5py
 import numpy as np
 
@@ -12,8 +14,17 @@ class DuetHhdf5Saver(Hdf5Saver):
     DUET V2.
     """
 
-    def __init__(self, dataset: Dataset, tokenizer, max_vocab_size, vocab_outfile, idf_outfile, max_query_len,
-                 max_doc_len, train_outfile=None, dev_outfile=None, test_outfile=None):
+    def __init__(self,
+                 dataset: Dataset,
+                 tokenizer,
+                 max_vocab_size,
+                 vocab_outfile,
+                 idf_outfile,
+                 train_outfile=None,
+                 dev_outfile=None,
+                 test_outfile=None,
+                 max_doc_len=None,
+                 max_query_len=None):
         """Construct a hdf5 saver for qa_util Datasets.
 
         Args:
@@ -25,7 +36,8 @@ class DuetHhdf5Saver(Hdf5Saver):
             if None.
         """
 
-        super().__init__(dataset, tokenizer, max_vocab_size, vocab_outfile, train_outfile, dev_outfile, test_outfile)
+        super().__init__(dataset, tokenizer, max_vocab_size, vocab_outfile, train_outfile, dev_outfile, test_outfile,
+                         max_doc_len, max_query_len)
 
         # compute idfs for weighting of the interaction matrix
         vocab_tokens = set(self.word_to_index.keys())
@@ -33,10 +45,6 @@ class DuetHhdf5Saver(Hdf5Saver):
         # map token ids to idfs
         self.idfs = dict(map(lambda x: (self.word_to_index[x[0]], x[1]), self.idfs.items()))
         dump_pkl_file(self.idfs, idf_outfile)
-
-        print('tokenizing...')
-        self.dataset.transform_docs(lambda x: self._words_to_index(self.tokenizer.tokenize(x))[:max_doc_len])
-        self.dataset.transform_queries(lambda x: self._words_to_index(self.tokenizer.tokenize(x)[:max_query_len]))
 
     def _define_trainset(self, dataset_fp, n_out_examples):
         vlen_int64 = h5py.special_dtype(vlen=np.dtype('int64'))
@@ -55,7 +63,8 @@ class DuetHhdf5Saver(Hdf5Saver):
     def _n_out_samples(self, dataset):
         if isinstance(dataset, Trainset):
             # duet trains on triplets i.e. pairs of (q, pos, neg)
-            return len(dataset.pos_pairs) * dataset.num_neg_examples
+            pos_samples = list(itertools.chain.from_iterable(dataset.train_positives.values()))
+            return len(pos_samples) * dataset.num_neg_examples
         elif isinstance(dataset, Testset):
             return len(dataset)
         else:
