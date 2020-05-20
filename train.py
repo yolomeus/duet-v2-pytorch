@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from data_source import DuetHdf5Trainset
 from model import DuetV2
-from qa_utils.io import list_to, get_cuda_device, load_pkl_file
+from qa_utils.io import list_to, get_cuda_device, load_pkl_file, load_json_file
 from qa_utils.misc import Logger
 
 
@@ -100,7 +100,7 @@ def main():
                                   num_workers=args.num_workers)
 
     device = get_cuda_device()
-    id_to_word = load_pkl_file(args.VOCAB_FILE)
+    id_to_word = load_json_file(args.VOCAB_FILE)
     model = DuetV2(id_to_word=id_to_word,
                    glove_name=args.glove_name,
                    glove_cache=args.glove_cache,

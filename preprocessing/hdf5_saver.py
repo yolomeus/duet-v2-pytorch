@@ -4,12 +4,12 @@ import h5py
 import numpy as np
 
 from qa_utils.io import dump_pkl_file
+from qa_utils.preprocessing.base_hdf5_saver import BaseHdf5Saver
 from qa_utils.preprocessing.dataset import Dataset, Trainset, Testset
-from qa_utils.preprocessing.hdf5saver import Hdf5Saver
 from qa_utils.text import compute_idfs
 
 
-class DuetHhdf5Saver(Hdf5Saver):
+class DuetHhdf5Saver(BaseHdf5Saver):
     """Class for transforming and saving a qa_utils dataset into an hdf5 file that matches the input specification of
     DUET V2.
     """

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from data_source import DuetHdf5Testset
 from model import DuetV2
 from qa_utils.evaluation import read_args, evaluate_all
-from qa_utils.io import get_cuda_device, load_pkl_file
+from qa_utils.io import get_cuda_device, load_pkl_file, load_json_file
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     device = get_cuda_device()
 
-    id_to_word = load_pkl_file(train_args['VOCAB_FILE'])
+    id_to_word = load_json_file(train_args['VOCAB_FILE'])
     model = DuetV2(id_to_word=id_to_word,
                    glove_name=train_args['glove_name'],
                    glove_cache=train_args['glove_cache'],

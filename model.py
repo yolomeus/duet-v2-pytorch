@@ -65,7 +65,6 @@ class DuetV2(torch.nn.Module):
         x = self.dropout(x)
 
         x = self.linear_out(x)
-        x = self.relu(x)
 
         return x * 0.1
 

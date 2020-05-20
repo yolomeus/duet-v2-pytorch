@@ -57,7 +57,7 @@ if __name__ == '__main__':
     saver = DuetHhdf5Saver(dataset,
                            DuetTokenizer(),
                            args.vocab_size,
-                           os.path.join(args.OUTPUT_DIR, 'vocabulary.pkl'),
+                           os.path.join(args.OUTPUT_DIR, 'vocabulary.json'),
                            os.path.join(args.OUTPUT_DIR, 'idfs.pkl'),
                            train_outfile=train_path,
                            dev_outfile=dev_path,
