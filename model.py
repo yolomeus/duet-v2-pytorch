@@ -1,18 +1,24 @@
 import torch
 from torch import nn
+from torch.nn import CrossEntropyLoss
+from torch.optim import Adam
 from torchtext import vocab
 
+from data_source import DuetHdf5Trainset, DuetHdf5Testset
+from qa_utils.io import load_pkl_file, load_json_file
+from qa_utils.lightning import BaseRanker
 
-class DuetV2(torch.nn.Module):
+
+class DuetV2(BaseRanker):
     """Implementation of the DuetV2 model.
     """
 
-    def __init__(self, id_to_word, glove_name, glove_cache, glove_dim, h_dim, max_q_len, max_d_len, dropout_rate,
-                 pooling_size_doc=100):
+    def __init__(self, lr, batch_size, id_to_word_file, idfs_file, glove_name, glove_cache, glove_dim, h_dim, max_q_len,
+                 max_d_len, dropout_rate, train_file, val_file, test_file, pooling_size_doc=100):
         """
 
         Args:
-            id_to_word: a mapping from all integer ids in the vocabulary to tokens.
+            id_to_word_file: a mapping from all integer ids in the vocabulary to tokens.
             glove_name: version of the pre-trained glove vectors to use. One of: ['42B', '840B', 'twitter.27B', '6B']
             glove_cache: the directory to download the glove vectors to.
             h_dim: Hidden dimension across the network.
@@ -21,10 +27,15 @@ class DuetV2(torch.nn.Module):
             dropout_rate: dropout rate for all dropout layers.
             pooling_size_doc: size of the max pooling window for the document after convolution.
         """
-        super().__init__()
+        id_to_word = load_json_file(id_to_word_file)
+        idfs = load_pkl_file(idfs_file)
+
+        train_ds = DuetHdf5Trainset(train_file, max_q_len, max_d_len, idfs)
+        val_ds = DuetHdf5Testset(val_file, max_q_len, max_d_len, idfs)
+        test_ds = DuetHdf5Testset(test_file, max_q_len, max_d_len, idfs)
+        super().__init__(train_ds, val_ds, test_ds, batch_size)
 
         self.local_model = DuetV2Local(h_dim, max_q_len, max_d_len, dropout_rate)
-
         self.distributed_model = DuetV2Distributed(id_to_word,
                                                    glove_name,
                                                    glove_cache,
@@ -43,15 +54,24 @@ class DuetV2(torch.nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout_rate)
 
-    def forward(self, query, doc, imat):
-        """Run the forward call.
+        self.ce_loss = CrossEntropyLoss()
+        self.lr = lr
+        self.batch_size = batch_size
+
+        # don't save the datasets
+        self.save_hyperparameters()
+
+    def forward(self, inputs):
+        """Run the forward pass.
 
         Args:
-            query: a fixed number of integer id's.
-            doc: a fixed number of integer id's.
-            imat: a (max_q_len x max_d_len) interaction matrix.
-
+            inputs:
+                - query: a fixed number of integer id's.
+                - doc: a fixed number of integer id's.
+                - imat: a (max_q_len x max_d_len) interaction matrix.
         """
+
+        query, doc, imat = inputs
         local = self.local_model(imat)
         dist = self.distributed_model(query, doc)
 
@@ -67,6 +87,34 @@ class DuetV2(torch.nn.Module):
         x = self.linear_out(x)
 
         return x * 0.1
+
+    def training_step(self, batch, batch_idx):
+        pos_batch, neg_batch, y_batch = batch
+        pos_out, neg_out = self(pos_batch), self(neg_batch)
+        out = torch.cat([pos_out, neg_out], 1)
+        loss = self.ce_loss(out, y_batch)
+        return {'loss': loss, 'log': {'train_loss': loss}}
+
+    def configure_optimizers(self):
+        return Adam(self.parameters(), lr=self.lr)
+
+    @staticmethod
+    def add_model_specific_args(ap):
+        ap.add_argument('IDF_FILE', help='JSON file containing the mapping from ids to words.')
+        ap.add_argument('--glove_name', default='840B', help='GloVe embedding name')
+        ap.add_argument('--glove_cache', default='glove_cache', help='Glove cache directory.')
+
+        ap.add_argument('--glove_dim', type=int, default=300, help='The dimensionality of the GloVe embeddings')
+        ap.add_argument('--hidden_dim', type=int, default=300,
+                        help='The hidden dimension used throughout the whole network.')
+
+        ap.add_argument('--max_q_len', type=int, default=20, help='Maximum query length.')
+        ap.add_argument('--max_d_len', type=int, default=200, help='Maximum document legth.')
+
+        ap.add_argument('--batch_size', type=int, default=32, help='Batch size')
+        ap.add_argument('--dropout', type=float, default=0.5, help='Dropout value')
+        ap.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
+        return ap
 
 
 class DuetV2Local(torch.nn.Module):
